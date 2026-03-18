@@ -1,0 +1,22 @@
+#!/bin/bash
+echo "================================"
+echo "    Compiling Trading Engine    "
+echo "================================"
+
+# Get the absolute path to the project root
+PROJECT_ROOT=$(pwd)
+
+g++ -O3 -Wall -shared -std=c++17 -fPIC \
+    -I "$PROJECT_ROOT" \
+    -I "$PROJECT_ROOT/resources/libraries" \
+    -I /usr/include/python3.13 \
+    $PROJECT_ROOT/cpp_src/rl_agent/*.cpp \
+    $PROJECT_ROOT/cpp_src/market/*.cpp \
+    $PROJECT_ROOT/cpp_src/portfolio/*.cpp \
+    $PROJECT_ROOT/cpp_src/environment/*.cpp \
+    -lpython3.13 \
+    -o "$PROJECT_ROOT/py_src/engine/rl_volatility_engine.so"
+
+echo "================================"
+echo "      Compilation Complete      "
+echo "================================"
