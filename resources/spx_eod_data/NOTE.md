@@ -1,0 +1,3 @@
+# NOTE ABOUT THE TRAINING DATA
+<p>This AI was trained using end-of-day data for European style call options on the S&P 500 from 2010 to 2023. That proves to be a lot of data, so I have not included it in order to keep the repository lightweight.</p>
+<p>I got the data from OptionsDX. It's free and you can get it too. I have changed the format of the data from it's original state distributed by OptionsDX. I have removed certain fields for the sake of simplicity and storage, fixed up some formatting, as well as interpolated some information. I have placed the script I wrote to format this data in this directory.</p>
