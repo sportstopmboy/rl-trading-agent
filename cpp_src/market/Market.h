@@ -10,7 +10,17 @@
 class Market
 {
 private:
-    // Rolling window tracking the closing price of the S&P 500 for the past 30 days
+    // Holds the close price of the S&P 500 in last 30 days of 2009. 
+    inline static std::vector<double> spxBuffer2009 = {
+        1109.80, 1094.90, 1091.38, 1106.24, 1105.65, 1110.63, 1091.49, 1095.63, 1108.86, 1109.24,
+        1099.92, 1105.98, 1103.25, 1091.94, 1095.95, 1102.35, 1106.41, 1114.11, 1107.93, 1109.18,
+        1096.08, 1102.47, 1114.05, 1118.02, 1120.59, 1126.48, 1127.78, 1126.20, 1126.42, 1115.10
+    };
+
+    // Holds all the closing prices from 2010 to 2023
+    inline static std::vector<double> masterSpxPrices;
+
+    // Deque which contains the closing price of the S&P 500 for all days in the simulation.
     std::deque<double> spxPriceHistory;
 
     // An array of all the call options available from 2010 to 2023
@@ -19,6 +29,10 @@ private:
     // The data takes ~100 seconds to load, which would result in hours lost over lots of iterations
     // However, the RAM usage went from ~35MB to ~2.4GB
     inline static std::vector<CallOption> openCallOptions;
+
+    // An array containing the indecies of the first call option for a new trading day
+    // Where arr[i] = (i+1)th day of call options
+    inline static std::vector<int> dailyOptionStartIndices;
     
     // A static boolean to track whether the call option data was loaded
     // Allows for the data to only have to be loaded once
@@ -70,6 +84,9 @@ public:
     // Returns a string containing today's date
     const std::string& getTodaysDate() const;
 
+    // Returns the total number of trading days in the simulation
+    const int getTotalTradingDays() const;
+
     // Returns the current closing price of the S&P 500
     double getCurrentSpxPrice();
 
@@ -79,7 +96,7 @@ public:
 
     // Resets the market back to the orginal state
     // Essentially rewinds time back to the start of 2010
-    void reset();
+    void reset(int startIndex);
 
     // Calculates the historical volatility of the S&P 500 given the closing prices in the last 30 days
     // This is plugged in as the volatility value into the Black-Scholes equation 

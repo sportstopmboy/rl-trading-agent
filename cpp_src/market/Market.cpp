@@ -8,17 +8,15 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include "Market.h"
+#include <random>
 
 using namespace std;
 
 // Constructor
 // Initialises the SPX price history window with the last 30 days of 2009
 // This allows for the first month of 2010 to still be used in training the AI
-Market::Market() : spxPriceHistory{
-                       1109.80, 1094.90, 1091.38, 1106.24, 1105.65, 1110.63, 1091.49, 1095.63, 1108.86, 1109.24,
-                       1099.92, 1105.98, 1103.25, 1091.94, 1095.95, 1102.35, 1106.41, 1114.11, 1107.93, 1109.18,
-                       1096.08, 1102.47, 1114.05, 1118.02, 1120.59, 1126.48, 1127.78, 1126.20, 1126.42, 1115.10},
-                   callOptionIndex(0), currentDayIndex(0)
+Market::Market() : callOptionIndex(0), currentDayIndex(0)
 {
     // Checks if the interest rate data has already been loaded
     // If not, it is loaded into RAM
@@ -94,6 +92,12 @@ const string& Market::getTodaysDate() const
     return tradingDays[currentDayIndex];
 }
 
+// Returns the total number of trading days in the simulation
+const int Market::getTotalTradingDays() const
+{
+    return tradingDays.size();
+}
+
 // Returns the current closing price of the S&P 500
 double Market::getCurrentSpxPrice()
 {
@@ -109,28 +113,41 @@ void Market::endTradingDay()
 
     // Update the current day index
     currentDayIndex++;
-
-    // Have we reached the end of the call option data?
-    if (currentDayIndex >= (int)tradingDays.size())
-    {
-        // If so, reset the portfolio
-        reset();
-    }
 }
 
 // Resets the market back to the orginal state
 // Essentially rewinds time back to the start of 2010
-void Market::reset()
+void Market::reset(int startIndex)
 {
-    // Reset the tracking indeces
-    currentDayIndex = 0;
-    callOptionIndex = 0;
+    // Teleport the AI to a random day
+    // This is done to ensure the AI does not learn the pattern of the market
+    // But instead learns to actually trade based off of the data it is given
+    currentDayIndex = startIndex;
 
-    // Reset rolling window to historical values
-    spxPriceHistory = {
-        1109.80, 1094.90, 1091.38, 1106.24, 1105.65, 1110.63, 1091.49, 1095.63, 1108.86, 1109.24,
-        1099.92, 1105.98, 1103.25, 1091.94, 1095.95, 1102.35, 1106.41, 1114.11, 1107.93, 1109.18,
-        1096.08, 1102.47, 1114.05, 1118.02, 1120.59, 1126.48, 1127.78, 1126.20, 1126.42, 1115.10};
+    // Teleport the Option Pointer
+    // This allows the program to not have to look up the call option at the start of a new trial
+    // Reduces start time from O(n) to O(1)
+    callOptionIndex = dailyOptionStartIndices[startIndex];
+
+    // Rebuild the rolling window to appropriate values
+    // Firstly, clear the current values
+    spxPriceHistory.clear();
+
+    // Grab the 30 days immediatedly preceding our spawn point
+    for (size_t i = startIndex - 30; i < startIndex; i++)
+    {
+        if (i < 0)
+        {
+            // If i is negative, we pull from the 2009 buffer.
+            // Example: If i = -30, we want index 0 of the 2009 buffer. (30 + -30 = 0)
+            spxPriceHistory.push_back(spxBuffer2009[30 + i]);
+        }
+        else
+        {
+            // If i is 0 or positive, we pull from the standard 2010+ dataset
+            spxPriceHistory.push_back(masterSpxPrices[i]);
+        }
+    }
 }
 
 // Calculates the historical volatility of the S&P 500 given the closing prices in the last 30 days
@@ -283,9 +300,18 @@ void Market::loadCallOptionData()
                     // Checks if the quote date of this call option has appeared before
                     // If it has not, it means it's part of a new trading day
                     // And therefore it is added to the trading days array
+                    // Performs the same check and fill action to the master SPX prices array
+                    // As well as the dailyOptionStartIndices array
                     if (tradingDays.empty() || tokens[0] != tradingDays.back())
                     {
+                        // Save the date
                         tradingDays.push_back(tokens[0]);
+
+                        // Save the closing price
+                        masterSpxPrices.push_back(stod(tokens[1]));
+
+                        // Save the exact array index where this day's option begins
+                        dailyOptionStartIndices.push_back(openCallOptions.size());
                     }
 
                     try

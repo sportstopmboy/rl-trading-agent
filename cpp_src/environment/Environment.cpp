@@ -3,6 +3,7 @@
 #include <vector>
 #include <limits>
 #include <iostream>
+#include <random>
 
 using namespace std;
 
@@ -243,8 +244,19 @@ vector<double> Environment::reset()
     // Reset the portfolio
     portfolio.reset();
 
-    // Reset the market
-    market.reset();
+    // Define the Safe Zone
+    // We subtract 252 to ensure the AI has at least one year of trades available
+    int maxSpawnIndex = market.getTotalTradingDays() - 252;
+
+    // Generate the random starting index using a random number generator
+    random_device rd;
+    mt19937 gen(rd());    
+    uniform_int_distribution<> distrib(0, maxSpawnIndex);
+
+    int randomStartIndex = distrib(gen);
+
+    // Teleport the market
+    market.reset(randomStartIndex);
 
     // Reset episode end flag
     isDone = false;
