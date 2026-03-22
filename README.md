@@ -1,2 +1,2 @@
-# rl-trading-agent
-A reinforcement learning agent trained to trade call options using end-of-day S&amp;P 500 call option data
+# Reinforcement Learning Trading Agent
+<p>The purpose behind this project was to use it to learn about certain topics; namely: reinforcement learning (more specifically, the PPO algorithm), call option trading, C++ backend implementation into Python using pybind11, and software deployment on a Linux machine.</p>
