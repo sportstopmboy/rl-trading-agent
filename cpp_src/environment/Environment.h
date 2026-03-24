@@ -24,7 +24,7 @@ private:
     Market market;
     // The AI's portfolio
     Portfolio portfolio;
-
+    
     // Boolean to flag if the simulation is finished
     bool isDone;
 
@@ -77,8 +77,12 @@ private:
     // This uses a nearest neighbor search to populate the grid each day
     void updateDailyGrid(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions);
 
+    // Formula used to calculate the reward the AI will receive
+    // This formula SHOULD TECHNICALLY ensure that the AI learns to trade well (please please work)
+    double calculateReward(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions);
+
 public:
-    // Rewinds the tape to 2010, clears the portfolio, and returns the first state
+    // Teleports the AI to a random days, clears the portfolio, and returns the first state
     std::vector<double> reset();
 
     // Executes the AI's trades, hedges, advances time, and calculates the reward

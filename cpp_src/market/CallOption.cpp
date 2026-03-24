@@ -2,6 +2,7 @@
 #include <cmath>
 #include <string>
 #include <utility>
+#include <algorithm>
 
 using namespace std;
 
@@ -67,7 +68,15 @@ double CallOption::calculateNx(double x)
 // Is the average of the ask and bid price
 double CallOption::calculateMidPrice() const
 {
-    return (bid + ask) / 2.0;
+    // Calculate the raw mid price
+    double mid = (bid + ask) / 2.0;
+    
+    // Calculate the mathematically guaranteed intrinsic value
+    double intrinsic = (S > K) ? (S - K) : 0.0;
+    
+    // The Ironclad Rule: Never allow the price to fall below intrinsic value
+    // This permanently closes the $0.00 Ghost Liquidity Exploit
+    return max(mid, intrinsic);
 }
 
 // Getters

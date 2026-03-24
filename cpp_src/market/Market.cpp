@@ -134,7 +134,7 @@ void Market::reset(int startIndex)
     spxPriceHistory.clear();
 
     // Grab the 30 days immediatedly preceding our spawn point
-    for (size_t i = startIndex - 30; i < startIndex; i++)
+    for (int i = startIndex - 30; i < startIndex; i++)
     {
         if (i < 0)
         {
@@ -156,43 +156,37 @@ void Market::reset(int startIndex)
 // This value is represents the annualized standard deviation of the natural log of daily returns of the S&P 500
 double Market::calculateHistoricalVolatility() const
 {
-    return sqrt(calculateSampleVariance() * 252);
-}
-
-// Function which calculates the daily logarithmic return.
-// Works by taking the natural log of the relative difference between today's price and yesterday's price.
-double Market::calculateDailyLogReturn(int i) const
-{
-    return log(spxPriceHistory[i] / spxPriceHistory[i - 1]);
-}
-
-// Returns the average daily logarithmic return of the S&P 500 for the last 30 days.
-double Market::calculateMeanReturn() const
-{
+    // Create a temporary variable to store the total return
     double totalReturn = 0.0;
+
+    // Loop which calculates the sum of daily logarithmic returns.
+    // Works by taking the natural log of the relative difference between today's price and yesterday's price.
     for (size_t i = spxPriceHistory.size() - 1; i > 0; i--)
     {
-        totalReturn += calculateDailyLogReturn(i);
+        totalReturn += log(spxPriceHistory[i] / spxPriceHistory[i - 1]);
     }
-    return totalReturn / spxPriceHistory.size();
-}
 
-// Return the sample variance for the last 30 days.
-/*
-    The sample variance is calculated by summing the squares of the difference between the daily return for each
-    day and the average return, then dividing the sum by 29 (the number of daily return values).
-*/
-double Market::calculateSampleVariance() const
-{
-    double meanReturn = calculateMeanReturn();
+    // Calculate the mean return by dividing the total return by the rolling window size - 1
+    double meanReturn = totalReturn / (spxPriceHistory.size() - 1);
 
+    // Create a temporary variable to store the sample variance
     double sampleVariance = 0.0;
+
+    // Loop which calculates the sample variance across the 30 day window
+    // The sample variance is calculated by summing the squares of the difference between the daily return for each
+    // day and the average return, then dividing the sum by 29 (the number of daily return values)
     for (size_t i = spxPriceHistory.size() - 1; i > 0; i--)
     {
-        double dailyReturn = calculateDailyLogReturn(i);
+        double dailyReturn = log(spxPriceHistory[i] / spxPriceHistory[i - 1]);
         sampleVariance += (dailyReturn - meanReturn) * (dailyReturn - meanReturn);
     }
-    return sampleVariance / (spxPriceHistory.size() - 1);
+
+    // To get the sample variance, we divide by the size of the rolling window - 1
+    sampleVariance /= (spxPriceHistory.size() - 1);
+
+    // This value is represents the annualized standard deviation of the natural log of daily returns of the S&P 500
+    // We multiply by 252 since there are generally 252 trading days in a year
+    return sqrt(sampleVariance * 252);
 }
 
 // Updates the 30 day rolling window by adding the latest closing price of the S&P 500
@@ -200,7 +194,7 @@ double Market::calculateSampleVariance() const
 void Market::updateDailyPrice()
 {
     // Add today's price to the deque.
-    spxPriceHistory.push_back(openCallOptions[callOptionIndex - 1].getUnderlyingLast());
+    spxPriceHistory.push_back(masterSpxPrices[currentDayIndex]);
     // Remove the price which falls outside the rolling window after today.
     spxPriceHistory.pop_front();
 }

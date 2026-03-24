@@ -105,20 +105,6 @@ public:
     double calculateHistoricalVolatility() const;
 
 private:
-    // Function which calculates the daily logarithmic return.
-    // Works by taking the natural log of the relative difference between today's price and yesterday's price.
-    double calculateDailyLogReturn(int i) const;
-
-    // Returns the average daily logarithmic return of the S&P 500 for the last 30 days.
-    double calculateMeanReturn() const;
-
-    // Return the sample variance for the last 30 days.
-    /*
-        The sample variance is calculated by summing the squares of the difference between the daily return for each
-        day and the average return, then dividing the sum by 29 (the number of daily return values).
-    */
-    double calculateSampleVariance() const;
-
     // Updates the 30 day rolling window by adding the latest closing price of the S&P 500
     // And removing the now 31st closing price
     void updateDailyPrice();

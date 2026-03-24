@@ -18,9 +18,7 @@ private:
     double initialCash; // How much cash the AI had at the beginning of the simulation
     double previousNAV; // A variable to store the net asset value of the AI during the previous trading day
 
-    std::deque<double> returnHistory;       // A deque holding the % return on the portfolio for the last 30 days
-    int sharpeWindowSize = 30;              // 30-day rolling window
-    static constexpr double EPSILON = 1e-4; // Math safety net to prevent division by zero
+    static constexpr double EPSILON = 1e-6; // Math safety net to prevent division by zero
 
 public:
     // Constructor
@@ -42,11 +40,9 @@ private:
     bool tradeSPX(double price, int quantity);
 
 public:
-    // Calculates the Sharpe Ratio
-    // This ratio represents how consistently the AI creates positive returns
-    // By using the Sharpe Ratio we encourage the AI to consistently make positive trades
-    // This eliminates high volatility of the portfolio and instead focuses on consistent results
-    double getRollingSharpeReward(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions);
+    // Calculates the daily return expressed as a ratio
+    // The ratio is NAV today : NAV yesterday
+    double getDailyReturn(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions);
 
     // Gets the net asset value (what the AI is worth)
     // The net asset value consists of:
@@ -78,6 +74,10 @@ public:
     // Calculated by getting the difference between the AI's current NAV
     // and the value of the SPX if the AI bought as much it could at the beginning of the simulation
     double getRelativePnL(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions) const;
+
+    // Calculates usable cash by freezing proceeds generated from short sales
+    // Prevents the AI from shorting everything to get instant cash
+    double getBuyingPower() const;
 
     // Getters
     double getCash() const;

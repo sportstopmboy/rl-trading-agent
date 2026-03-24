@@ -4,7 +4,8 @@
 
 using namespace std;
 
-// CONSTRUCTOR
+// Constructor
+// Initialsed with explicit zeros
 SPXPosition::SPXPosition()
     : avgCost(0.0),
       numShares(0)

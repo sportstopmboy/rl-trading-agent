@@ -4,6 +4,7 @@
 #include <limits>
 #include <iostream>
 #include <random>
+#include "Environment.h"
 
 using namespace std;
 
@@ -13,13 +14,23 @@ Environment::Environment(double initialCash)
 {
 }
 
-// The master array holding exactly 99 pointers for today's grid
-// This is a 9x11 grid which allocates call options to specific qualities
-// The two qualities are DTE (x-axis) and Moneyness (y-axis)
-// Moneyness is defined as the strike price divided by the SPX price
-// It searches for call options which are most similar to these two qualities
-// In essence, if we imagine a cartesian plane, this grid represents the points
-// which are closest to points we predefine
+// Gets the normalized state array to the AI
+// The state array contains the 99 call options from today's grid
+// As well as 8 state features for each call option
+// These 8 state features are:
+// 1) Exact moneyness
+// 2) Exact DTE
+// 3) Edge ratio (Black-Scholes Theoretical Price : Actual Mid Price)
+// 4) Delta
+// 5) Gamma
+// 6) Theta
+// 7) Rho
+// 8) Spread Percentage
+// The array also contains 4 global features:
+// 1) 30-day histoical volatility
+// 2) The baseline 3-month risk free rate
+// 3) Portfolio Net Delta
+// 4) Available Buying Power %
 vector<double> Environment::getObservation(const vector<const CallOption*>& todaysCallOptions,
                                            double currentSpxPrice,
                                            double historicalVolatility,
@@ -67,8 +78,6 @@ vector<double> Environment::getObservation(const vector<const CallOption*>& toda
     }
 
     // Calculate and append the 4 global features
-    double currentNAV = portfolio.getNetAssetValue(currentSpxPrice, todaysCallOptions);
-
     // Global 1: 30-day histoical volatility
     state.push_back(historicalVolatility);
 
@@ -106,6 +115,10 @@ vector<double> Environment::getObservation(const vector<const CallOption*>& toda
     // Note: Net Delta includes the SPX shares hedging it. 
     // We add the SPX share quantity to the options delta to get the true directional exposure.
     double trueNetDelta = netDelta + portfolio.getSpxPosition().getNumShares();
+
+    // Get the current net asset value of the portfolio
+    double currentNAV = portfolio.getNetAssetValue(currentSpxPrice, todaysCallOptions);
+
     // Protect against dividing by zero
     // This however should not happen as that would mean the AI is bankrupt
     state.push_back(currentNAV > 0 ? (trueNetDelta / currentNAV) : 0.0);
@@ -118,35 +131,21 @@ vector<double> Environment::getObservation(const vector<const CallOption*>& toda
     return state;
 }
 
-// Gets the normalized state array to the AI
-// The state array contains the 99 call options from today's grid
-// As well as 8 state features for each call option
-// These 8 state features are:
-// 1) Exact moneyness
-// 2) Exact DTE
-// 3) Edge ratio (Black-Scholes Theoretical Price : Actual Mid Price)
-// 4) Delta
-// 5) Gamma
-// 6) Theta
-// 7) Rho
-// 8) Spread Percentage
-// The array also contains 4 global features:
-// 1) 30-day histoical volatility
-// 2) The baseline 3-month risk free rate
-// 3) Portfolio Net Delta
-// 4) Available Buying Power %
+// Translates the AI's raw output array into physical buy/sell orders
+// It uses the decimal output as a percentage of how much current buying power the AI wants to allocate to that option
 void Environment::executeAgentAction(const vector<double>& actionWeights,
                                      double currentSpxPrice)
 {
     // Protect against inconsistent action weights array size errors
+    // Although it is practically impossi
     if (actionWeights.size() != todaysGrid.size()) {
         cerr << "FATAL ERROR: AI passed " << actionWeights.size() 
              << " actions, but grid requires " << todaysGrid.size() << ".\n";
         return; 
     }
 
-    // Determine the maximum buying power per slot
-    double maxCapitalPerSlot = portfolio.getNetAssetValue(currentSpxPrice, market.getTodaysCallOptions());
+    // Determine the maximum buying power per slot using the cached array
+    double maxCapitalPerSlot = portfolio.getNetAssetValue(currentSpxPrice, currentCallOptions);
 
     // Iterate through the AI's decisions
     for (size_t i = 0; i < todaysGrid.size(); i++)
@@ -154,21 +153,30 @@ void Environment::executeAgentAction(const vector<double>& actionWeights,
         const CallOption* contract = todaysGrid[i];
 
         // If the grid slot is empty, or the AI's signal is effectively zero, skip
-        if (contract == nullptr || std::abs(actionWeights[i]) < 0.01) continue;
+        if (contract == nullptr || abs(actionWeights[i]) < 0.01) continue;
 
         // Calculate the physical dollar amount the AI wants to park in this contract
         // actionWeights[i] refers to the AI's signal (Squeezed between -1.0 for max short, and 1.0 for max long)
-        // This value it multiplied by 5% to indicate that 5% of cash can be allocated to one call option at a time
-        double targetCapital = actionWeights[i] * maxCapitalPerSlot * 0.05;
+        // This value it multiplied by 1% to indicate that 1% of cash can be allocated to one call option at a time
+        double targetCapital = actionWeights[i] * maxCapitalPerSlot * 0.01;
 
         // Calculate the physical cost of one contract
         double contractCost = contract->calculateMidPrice() * 100;
 
-        // Protect against corrupted rows
+        // Protect against corrupted rows (Although this should not normally happen)
         if (contractCost <= 0) continue;
 
         // Calculate the target quantity of contracts (truncated to a whole integer)
         int targetQuantity = (int)(targetCapital / contractCost);
+
+        // The CBOE Liquidity Constraint
+        // Prevent the AI from buying up the entire world's supply of penny options
+        // Instead the AI is limited to holding a maximum of 100 long or short contracts at one time
+        // This effectively creates two constraints on the AI's risk:
+        // 1) Only 1% of the AI's cash can be used on a call option
+        // 2) It can not hold more than 100 of the same contract
+        if (targetQuantity > 100) targetQuantity = 100; 
+        if (targetQuantity < -100) targetQuantity = -100;
 
         // Find out how many of this exact contract we currently own
         int currentQuantity = portfolio.getPositionQuantity(contract);
@@ -180,29 +188,65 @@ void Environment::executeAgentAction(const vector<double>& actionWeights,
         // Execution and Action clamping safety net
         if (tradeQuantity != 0)
         {
-            // The portfolio attemps the physical math
-            // If the trade violates margin or cash limits, the portfolio rejects it and returns false
-            portfolio.tradeOption(*contract, contract->calculateMidPrice(), tradeQuantity);
+            // Slippage factor implementation
+            // We assume a slippage factor of 20% for simplicity
+            // We use this factor to assume effective buys and asks
+            // This is because market makers increase the spread at the end of the day to protect themselves
+            double midPrice = contract->calculateMidPrice();
+            double spread = contract->getAsk() - contract->getBid();
 
-            // If the tradeOption() function returns false, the program does not crash.
-            // All it means is that the AI attempted a trade it could not afford.
-            // The trade is simply ignored (clamped).
+            // The Slippage Factor: 0.20 means we cross 20% of the spread from the mid-price
+            double slippageFactor = 0.20; 
+            double executionPrice = midPrice;
+
+            // If we are buying contracts
+            if (tradeQuantity > 0) 
+            {
+                // We pay slightly more than the mid-price (Effective Ask)
+                executionPrice = midPrice + (spread * slippageFactor);
+            }
+            // If we are selling
+            else if (tradeQuantity < 0) 
+            {
+                // We receive slightly less than the mid-price (Effective Bid)
+                executionPrice = midPrice - (spread * slippageFactor);
+            }
+
+            // The portfolio attemps the physical math using the penalized execution price
+            // If the trade violates margin or cash limits, the portfolio rejects it and returns false
+            bool success = portfolio.tradeOption(*contract, executionPrice, tradeQuantity);
+
+            // The Liquidation Fallback
+            // If the full trade was rejected (likely due to short margin), but we own contracts,
+            // override the AI and just forcefully liquidate the long position to free up the cash
+            // Then proceed to fulfil the AI's desired order
+            if (!success && currentQuantity > 0 && tradeQuantity < 0) 
+            {
+                // Step 1: Liquidate all longs
+                // This brings currentQuantity to 0 and adds the proceeds to our cash balance
+                portfolio.tradeOption(*contract, executionPrice, -currentQuantity);
+
+                // Step 2: Fulfill the AI's original intent
+                // Now that our cash balance is higher, attempt the short sale again
+                // Since we currently own 0, to reach the target, we just trade the targetQuantity
+                portfolio.tradeOption(*contract, executionPrice, targetQuantity);
+            }
         }
     }
 }
 
 // Helper function to find specific contracts that perfectly match chosen DTEs and Strikes
 // This uses a nearest neighbor search to populate the grid each day
-void Environment::updateDailyGrid(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions)
+void Environment::updateDailyGrid(double currentSpxPrice, const vector<const CallOption*>& todaysCallOptions)
 {
     // Wipe yesterday's grid, but keep the 99 slots of memory reserved for maximum efficiency
     todaysGrid.clear();
     todaysGrid.reserve(99); 
 
     // Define the x coordinates (DTE)
-    const std::vector<int> targetDTEs = {3, 7, 10, 14, 21, 30, 45, 60, 90};
+    const vector<int> targetDTEs = {3, 7, 10, 14, 21, 30, 45, 60, 90};
     // Define the y coordinates (moneyness)
-    const std::vector<double> targetMoneyness = {0.95, 0.96, 0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03, 1.04, 1.05};
+    const vector<double> targetMoneyness = {0.95, 0.96, 0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03, 1.04, 1.05};
 
     // Loop through the 99 coordinates and perform a nearest neighbor search on each one
     for (int dte : targetDTEs)
@@ -211,14 +255,14 @@ void Environment::updateDailyGrid(double currentSpxPrice, const std::vector<cons
         {
             // Temporary variables to hold the best match and closest distance
             const CallOption* bestMatch = nullptr;
-            double minScore = std::numeric_limits<double>::max();
+            double minScore = numeric_limits<double>::max();
 
             // The nearest neighbor search
             for (const CallOption* option : todaysCallOptions)
             {
                 // Get the DTE difference and moneyness difference
-                double dteDiff = std::abs(option->getDaysToExpiration() - dte);
-                double moneyDiff = std::abs(option->getStrike() / currentSpxPrice - targetMoney);
+                double dteDiff = abs(option->getDaysToExpiration() - dte);
+                double moneyDiff = abs(option->getStrike() / currentSpxPrice - targetMoney);
 
                 // We multiply the absolute value of the DTE difference by a massive weight
                 // This forces the algorithm to match the expiration date as closely as possible
@@ -238,15 +282,27 @@ void Environment::updateDailyGrid(double currentSpxPrice, const std::vector<cons
     }
 }
 
-// Rewinds the tape to 2010, clears the portfolio, and returns the first state
+// Formula used to calculate the reward the AI will receive
+// This formula SHOULD TECHNICALLY ensure that the AI learns to trade well (please please work)
+double Environment::calculateReward(double currentSpxPrice, const std::vector<const CallOption*>& todaysCallOptions)
+{
+    // This formula is R(NAV_t) = ln(NAV_t / NAV_t-1) * 100
+    // The 100 is a scale factor derived to keep the reward between [-1; 1]
+    // This is because it's unlikely to see a change in NAV by more than 1%
+    // Therefore we want to keep the reward function between [-1; 1] but also as close to [-1; 1] as possible
+    // There is an epsilon check in the portfolio class
+    return log(portfolio.getDailyReturn(currentSpxPrice,  todaysCallOptions)) * 100;
+}
+
+// Teleports the AI to a random days, clears the portfolio, and returns the first state
 vector<double> Environment::reset()
 {
     // Reset the portfolio
     portfolio.reset();
 
     // Define the Safe Zone
-    // We subtract 252 to ensure the AI has at least one year of trades available
-    int maxSpawnIndex = market.getTotalTradingDays() - 252;
+    // We subtract 2016 to ensure the AI has at least one full epsiode of trades available
+    int maxSpawnIndex = market.getTotalTradingDays() - 2016;
 
     // Generate the random starting index using a random number generator
     random_device rd;
@@ -303,48 +359,28 @@ StepResult Environment::step(const vector<double>& agentActions)
 
     // Settle: Settle any options that expire this day
     portfolio.processExpirations(newDate, newSpxPrice);
-
+    
+    // Calculate and report back the current NAV for Tensorboard analysis
     double currentNAV = portfolio.getNetAssetValue(newSpxPrice, currentCallOptions);
 
-    // The Circuit Breaker & Asymmetric Death Penalty
-    // We check for ruin before calculating any statistical returns.
-    if (currentNAV <= 0)
-    {
-        isDone = true;
+    // We use this statement to set the isDone flag
+    // It is allocated to true when the end of the simulation is reached
+    // Either by bankrupcy or running out of data
+    isDone = (currentNAV <= 1000 || newDate == Market::END_DATE);
 
-        // In finance, Sharpe ratios rarely drop below -3.0 or exceed +3.0.
-        // A flat -10.0 acts as a massive mathematical wall, forcing the 
-        // gradient strictly away from actions that cause early bankruptcy.
-        double deathPenalty = -10.0; 
+    // Calculate the reward to feed the AI                                   
+    double reward = calculateReward(newSpxPrice, currentCallOptions);
 
-        StepResult result;
-        result.stateFeatures = getObservation(currentCallOptions, newSpxPrice, 
-                                              market.calculateHistoricalVolatility(), 
-                                              market.getTodaysInterestRate());
-        result.reward = deathPenalty;
-        result.isDone = true;
-        result.currentNAV = currentNAV;
-        return result; // Exit immediately
-    }
-
-    // The Risk-Adjusted Reward
-    // If we survived, calculate the rolling Sharpe Ratio
-    double reward = portfolio.getRollingSharpeReward(newSpxPrice, currentCallOptions);
-
-    // Normal Termination (Data exhaustion)
-    if (newDate == Market::END_DATE)
-    {
-        isDone = true;
-    }
-
-    // Build and return the final step result struct
+    // Create the step result struct
     StepResult result;
+
+    // Add the observation array to the struct
     result.stateFeatures = getObservation(currentCallOptions, newSpxPrice, 
                                           market.calculateHistoricalVolatility(), 
                                           market.getTodaysInterestRate());
-    result.reward = reward;
-    result.isDone = isDone;
     result.currentNAV = currentNAV;
+    result.isDone = isDone;
+    result.reward = reward;
 
     return result;
 }

@@ -28,7 +28,10 @@ PYBIND11_MODULE(rl_volatility_engine, m)
         .def(py::init<double>(), py::arg("initial_cash"))
         
         // Bind the core RL functions
-        .def("reset", &Environment::reset)
-        .def("step", &Environment::step, py::arg("agent_actions"))
+        // We drop the Python GIL right before C++ executes, and re-acquire it when C++ finishes.
+        // This allows other Python threads to run simultaneously on the Raspberry Pi's other cores 
+        .def("reset", &Environment::reset, py::call_guard<py::gil_scoped_release>())
+        .def("step", &Environment::step, py::arg("agent_actions"), py::call_guard<py::gil_scoped_release>())
+        
         .def("get_is_done", &Environment::getIsDone);
 }
